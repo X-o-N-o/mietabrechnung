@@ -24,6 +24,15 @@ npm test             # Tests der Rechenlogik
 
 Lokal als Container: `docker compose up --build` im Repo-Stamm → http://localhost:8099
 
+## Release
+
+Home Assistant baut das Add-on nicht selbst, sondern lädt fertige Images aus der
+GitHub Container Registry (`ghcr.io/x-o-n-o/mietabrechnung-{arch}`).
+
+1. `version` in `mietabrechnung/config.yaml` erhöhen und `CHANGELOG.md` ergänzen
+2. Pushen – die Action „Image bauen" testet und veröffentlicht die Images mit dieser Version
+3. Wenn die Action grün ist: in Home Assistant das Update installieren
+
 ## Aufbau
 
 - `mietabrechnung/shared/calc.ts` – Rechenlogik (Aufteilung, Rundung, Berichte)
