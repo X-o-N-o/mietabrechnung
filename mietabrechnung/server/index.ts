@@ -3,8 +3,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { db } from "./db.ts";
-import { buildReport, monthFromIndex, monthIndex } from "../shared/calc.ts";
-import type { Category, Cost, Person, Rent } from "../shared/types.ts";
+import { buildReport, expandItems, monthIndex } from "../shared/calc.ts";
+import type { Category, Item, ItemAmount, Person, Rent } from "../shared/types.ts";
 
 const app = express();
 app.use(express.json());
@@ -58,7 +58,6 @@ const getCategories = () =>
   db.prepare("SELECT id, name, color FROM categories ORDER BY name COLLATE NOCASE").all() as unknown as Category[];
 const getRents = () =>
   db.prepare("SELECT id, amount, valid_from AS validFrom, note FROM rents ORDER BY valid_from").all() as unknown as Rent[];
-const costSelect = "SELECT id, category_id AS categoryId, description, amount, month, note FROM costs";
 
 // ---------- Personen ----------
 function personInput(b: any) {
@@ -118,7 +117,7 @@ app.put(
 app.delete(
   "/api/categories/:id",
   route((req) => {
-    const used = db.prepare("SELECT COUNT(*) AS n FROM costs WHERE category_id = ?").get(id(req)) as { n: number };
+    const used = db.prepare("SELECT COUNT(*) AS n FROM items WHERE category_id = ?").get(id(req)) as { n: number };
     if (used.n > 0) throw new HttpError(409, `Kategorie wird von ${used.n} Posten verwendet`);
     changed(db.prepare("DELETE FROM categories WHERE id = ?").run(id(req)));
   }),
@@ -150,65 +149,116 @@ app.put(
 );
 app.delete("/api/rents/:id", route((req) => void changed(db.prepare("DELETE FROM rents WHERE id = ?").run(id(req)))));
 
-// ---------- Nebenkosten ----------
-function costInput(b: any) {
+// ---------- Nebenkosten-Posten ----------
+const INTERVALS = [0, 1, 3, 6, 12];
+
+function getItems(): Item[] {
+  const items = db
+    .prepare(
+      "SELECT id, category_id AS categoryId, description, note, interval, start_month AS startMonth, end_month AS endMonth FROM items ORDER BY start_month, id",
+    )
+    .all() as unknown as Item[];
+  const amounts = db
+    .prepare("SELECT id, item_id AS itemId, valid_from AS validFrom, amount FROM item_amounts ORDER BY valid_from")
+    .all() as unknown as (ItemAmount & { itemId: number })[];
+  const byItem = new Map<number, ItemAmount[]>(items.map((i) => [i.id, (i.amounts = [])]));
+  for (const { itemId, ...a } of amounts) byItem.get(itemId)?.push(a);
+  return items;
+}
+
+function itemInput(b: any) {
+  if (!INTERVALS.includes(b.interval)) throw new HttpError(400, "Turnus ist ungültig");
+  const startMonth = month(b.startMonth, "Erste Fälligkeit");
+  const endMonth = b.endMonth ? month(b.endMonth, "Ende") : null;
+  if (endMonth && endMonth < startMonth) throw new HttpError(400, "Das Ende liegt vor der ersten Fälligkeit");
   return {
     categoryId: int(b.categoryId, "Kategorie"),
     description: str(b.description, "Beschreibung", { required: false }),
-    amount: int(b.amount, "Betrag"),
-    month: month(b.month, "Monat"),
     note: str(b.note, "Notiz", { required: false, max: 1000 }),
+    interval: b.interval as number,
+    startMonth,
+    endMonth: b.interval === 0 ? null : endMonth,
   };
 }
-app.get(
-  "/api/costs",
-  route((req) => {
-    const year = String(req.query.year ?? "");
-    if (/^\d{4}$/.test(year)) return db.prepare(`${costSelect} WHERE month LIKE ? ORDER BY month DESC, id DESC`).all(`${year}-%`);
-    return db.prepare(`${costSelect} ORDER BY month DESC, id DESC`).all();
-  }),
-);
+
+function inTransaction<T>(fn: () => T): T {
+  db.exec("BEGIN");
+  try {
+    const r = fn();
+    db.exec("COMMIT");
+    return r;
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
+app.get("/api/items", route(() => getItems()));
 app.post(
-  "/api/costs",
+  "/api/items",
   route((req) => {
-    const c = costInput(req.body);
-    const r = db
-      .prepare("INSERT INTO costs (category_id, description, amount, month, note) VALUES (?, ?, ?, ?, ?)")
-      .run(c.categoryId, c.description, c.amount, c.month, c.note);
-    return { id: Number(r.lastInsertRowid) };
+    const i = itemInput(req.body);
+    const amount = int(req.body.amount, "Betrag");
+    return inTransaction(() => {
+      const r = db
+        .prepare("INSERT INTO items (category_id, description, note, interval, start_month, end_month) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(i.categoryId, i.description, i.note, i.interval, i.startMonth, i.endMonth);
+      db.prepare("INSERT INTO item_amounts (item_id, valid_from, amount) VALUES (?, ?, ?)").run(r.lastInsertRowid, i.startMonth, amount);
+      return { id: Number(r.lastInsertRowid) };
+    });
   }),
 );
 app.put(
-  "/api/costs/:id",
+  "/api/items/:id",
   route((req) => {
-    const c = costInput(req.body);
+    const i = itemInput(req.body);
+    const itemId = id(req);
+    inTransaction(() => {
+      changed(
+        db
+          .prepare("UPDATE items SET category_id = ?, description = ?, note = ?, interval = ?, start_month = ?, end_month = ? WHERE id = ?")
+          .run(i.categoryId, i.description, i.note, i.interval, i.startMonth, i.endMonth, itemId),
+      );
+      // Der früheste Betrag beginnt immer mit der ersten Fälligkeit
+      db.prepare(
+        "UPDATE item_amounts SET valid_from = ? WHERE id = (SELECT id FROM item_amounts WHERE item_id = ? ORDER BY valid_from LIMIT 1) AND valid_from > ?",
+      ).run(i.startMonth, itemId, i.startMonth);
+    });
+  }),
+);
+app.delete("/api/items/:id", route((req) => void changed(db.prepare("DELETE FROM items WHERE id = ?").run(id(req)))));
+
+// Beträge: gelten ab validFrom bis zur nächsten Änderung
+app.post(
+  "/api/items/:id/amounts",
+  route((req) => {
+    const itemId = id(req);
+    if (!db.prepare("SELECT id FROM items WHERE id = ?").get(itemId)) throw new HttpError(404, "Posten nicht gefunden");
+    const validFrom = month(req.body.validFrom, "Gültig ab");
+    const amount = int(req.body.amount, "Betrag");
+    db.prepare(
+      "INSERT INTO item_amounts (item_id, valid_from, amount) VALUES (?, ?, ?) ON CONFLICT (item_id, valid_from) DO UPDATE SET amount = excluded.amount",
+    ).run(itemId, validFrom, amount);
+  }),
+);
+app.put(
+  "/api/items/:id/amounts/:aid",
+  route((req) => {
+    const validFrom = month(req.body.validFrom, "Gültig ab");
+    const amount = int(req.body.amount, "Betrag");
     changed(
       db
-        .prepare("UPDATE costs SET category_id = ?, description = ?, amount = ?, month = ?, note = ? WHERE id = ?")
-        .run(c.categoryId, c.description, c.amount, c.month, c.note, id(req)),
+        .prepare("UPDATE item_amounts SET valid_from = ?, amount = ? WHERE id = ? AND item_id = ?")
+        .run(validFrom, amount, Number(req.params.aid), id(req)),
     );
   }),
 );
-app.delete("/api/costs/:id", route((req) => void changed(db.prepare("DELETE FROM costs WHERE id = ?").run(id(req)))));
-
-// Alle Posten des Vormonats in den Zielmonat kopieren
-app.post(
-  "/api/costs/copy-previous",
+app.delete(
+  "/api/items/:id/amounts/:aid",
   route((req) => {
-    const target = month(req.body.month, "Monat");
-    const prev = monthFromIndex(monthIndex(target) - 1);
-    const items = db.prepare(`${costSelect} WHERE month = ?`).all(prev) as unknown as Cost[];
-    if (items.length === 0) throw new HttpError(404, "Im Vormonat gibt es keine Posten");
-    const ins = db.prepare("INSERT INTO costs (category_id, description, amount, month, note) VALUES (?, ?, ?, ?, ?)");
-    db.exec("BEGIN");
-    try {
-      for (const c of items) ins.run(c.categoryId, c.description, c.amount, target, c.note);
-      db.exec("COMMIT");
-    } catch (e) {
-      db.exec("ROLLBACK");
-      throw e;
-    }
-    return { copied: items.length };
+    const n = db.prepare("SELECT COUNT(*) AS n FROM item_amounts WHERE item_id = ?").get(id(req)) as { n: number };
+    if (n.n <= 1) throw new HttpError(409, "Der letzte Betrag kann nicht gelöscht werden");
+    changed(db.prepare("DELETE FROM item_amounts WHERE id = ? AND item_id = ?").run(Number(req.params.aid), id(req)));
   }),
 );
 
@@ -219,8 +269,7 @@ app.get(
     const from = month(req.query.from, "from");
     const to = month(req.query.to, "to");
     if (monthIndex(to) < monthIndex(from) || monthIndex(to) - monthIndex(from) > 600) throw new HttpError(400, "Zeitraum ist ungültig");
-    const costs = db.prepare(`${costSelect} WHERE month BETWEEN ? AND ?`).all(from, to) as unknown as Cost[];
-    return buildReport(from, to, getPersons(), getCategories(), getRents(), costs);
+    return buildReport(from, to, getPersons(), getCategories(), getRents(), expandItems(getItems(), from, to));
   }),
 );
 
@@ -229,7 +278,7 @@ app.get(
   "/api/years",
   route(() => {
     const rows = db
-      .prepare("SELECT DISTINCT substr(month, 1, 4) AS y FROM costs UNION SELECT DISTINCT substr(valid_from, 1, 4) FROM rents")
+      .prepare("SELECT DISTINCT substr(start_month, 1, 4) AS y FROM items UNION SELECT DISTINCT substr(valid_from, 1, 4) FROM rents")
       .all() as { y: string }[];
     const years = new Set(rows.map((r) => Number(r.y)));
     years.add(new Date().getFullYear());

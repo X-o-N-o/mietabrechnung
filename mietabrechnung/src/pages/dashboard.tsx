@@ -1,18 +1,17 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { ArrowRight, KeyRound, Plus, Receipt } from "lucide-react";
-import type { Cost } from "@shared/types.ts";
-import { useCategories, useCosts, useReport } from "@/lib/api";
-import { addMonths, currentMonth, formatEuro, monthLabel, percentChange } from "@/lib/format";
+import { useCategories, useItems, useReport } from "@/lib/api";
+import { addMonths, currentMonth, formatEuro, intervalInfo, monthLabel, percentChange } from "@/lib/format";
 import { Avatar, Badge, Button, Card, CardHeader, Delta, Dot, Empty, MonthPicker, PageHeader, Stat } from "@/components/ui";
-import { CostDialog } from "@/components/dialogs";
+import { ItemDialog } from "@/components/dialogs";
 import { MonthlyCostsChart } from "@/components/charts";
 
 export default function Dashboard() {
   const [month, setMonth] = useState(currentMonth);
-  const [dialog, setDialog] = useState<{ open: boolean; cost?: Cost | null }>({ open: false });
+  const [dialog, setDialog] = useState<{ open: boolean; itemId?: number }>({ open: false });
   const { data: report } = useReport(addMonths(month, -11), month);
-  const { data: costs = [] } = useCosts(Number(month.slice(0, 4)));
+  const { data: items = [] } = useItems();
   const { data: categories = [] } = useCategories();
 
   if (!report) return <PageHeader title="Übersicht" />;
@@ -22,7 +21,11 @@ export default function Dashboard() {
   const tenants = report.persons.filter((p) => p.role === "tenant");
   const owners = report.persons.filter((p) => p.role === "owner");
   const totalShares = report.persons.reduce((s, p) => s + p.shares, 0);
-  const monthCosts = costs.filter((c) => c.month === month);
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  const monthCosts = Object.entries(cur.byItem)
+    .map(([id, amount]) => ({ item: itemById.get(Number(id)), amount }))
+    .filter((c) => c.item)
+    .sort((a, b) => b.amount - a.amount);
   const catById = new Map(categories.map((c) => [c.id, c]));
   const avg12 = Math.round(report.totals.costs / 12);
 
@@ -32,7 +35,7 @@ export default function Dashboard() {
         <MonthPicker value={month} onChange={setMonth} />
         <Button variant="primary" onClick={() => setDialog({ open: true })}>
           <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">Nebenkosten</span>
+          <span className="hidden sm:inline">Posten</span>
         </Button>
       </PageHeader>
 
@@ -132,29 +135,32 @@ export default function Dashboard() {
               <Empty
                 icon={<Receipt className="h-5 w-5" />}
                 title="Keine Posten"
-                text={`Für ${monthLabel(month)} sind noch keine Nebenkosten erfasst.`}
+                text={`Für ${monthLabel(month)} fallen keine Nebenkosten an. Lege wiederkehrende Posten einmal an, sie laufen dann automatisch weiter.`}
                 action={
                   <Button size="sm" onClick={() => setDialog({ open: true })}>
-                    <Plus className="h-3.5 w-3.5" /> Erfassen
+                    <Plus className="h-3.5 w-3.5" /> Posten anlegen
                   </Button>
                 }
               />
             ) : (
               <ul>
-                {monthCosts.map((c) => {
-                  const cat = catById.get(c.categoryId);
+                {monthCosts.map(({ item: c, amount }) => {
+                  const cat = catById.get(c!.categoryId);
+                  const info = intervalInfo(c!.interval);
                   return (
-                    <li key={c.id}>
+                    <li key={c!.id}>
                       <button
-                        onClick={() => setDialog({ open: true, cost: c })}
+                        onClick={() => setDialog({ open: true, itemId: c!.id })}
                         className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-raised"
                       >
                         <Dot color={cat?.color ?? "#64748b"} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{cat?.name ?? "Unbekannt"}</p>
-                          {c.description && <p className="truncate text-xs text-subtle">{c.description}</p>}
+                          <p className="truncate text-xs text-subtle">
+                            {[info.label + (c!.interval > 1 ? " · anteilig" : ""), c!.description].filter(Boolean).join(" · ")}
+                          </p>
                         </div>
-                        <span className="text-sm font-medium tnum">{formatEuro(c.amount)}</span>
+                        <span className="text-sm font-medium tnum">{formatEuro(amount)}</span>
                       </button>
                     </li>
                   );
@@ -190,7 +196,12 @@ export default function Dashboard() {
         </Card>
       )}
 
-      <CostDialog open={dialog.open} cost={dialog.cost} defaultMonth={month} onOpenChange={(open) => setDialog((d) => ({ ...d, open }))} />
+      <ItemDialog
+        open={dialog.open}
+        item={items.find((i) => i.id === dialog.itemId) ?? null}
+        defaultMonth={month}
+        onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}
+      />
     </>
   );
 }

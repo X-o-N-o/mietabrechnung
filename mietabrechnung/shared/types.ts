@@ -24,13 +24,33 @@ export interface Rent {
   note: string;
 }
 
-export interface Cost {
+/** Turnus in Monaten; 0 = einmalig */
+export type Interval = 0 | 1 | 3 | 6 | 12;
+
+export interface ItemAmount {
+  id: number;
+  validFrom: string; // YYYY-MM, gilt bis zur nächsten Änderung
+  amount: number; // Betrag je Fälligkeit (z. B. pro Quartal)
+}
+
+/** Wiederkehrender (oder einmaliger) Nebenkostenposten des ganzen Hauses */
+export interface Item {
   id: number;
   categoryId: number;
   description: string;
-  amount: number;
-  month: string; // YYYY-MM, Monat, dem der Posten zugeordnet wird
   note: string;
+  interval: Interval;
+  startMonth: string; // erste Fälligkeit
+  endMonth: string | null; // letzter berechneter Monat (einschließlich)
+  amounts: ItemAmount[]; // aufsteigend nach validFrom
+}
+
+/** Auf einen Monat entfallender Anteil eines Postens */
+export interface Charge {
+  itemId: number;
+  categoryId: number;
+  month: string;
+  amount: number;
 }
 
 export interface PersonAmounts {
@@ -44,6 +64,7 @@ export interface MonthReport {
   rentTotal: number;
   costTotal: number;
   byCategory: Record<number, number>;
+  byItem: Record<number, number>;
   persons: Record<number, PersonAmounts>;
 }
 

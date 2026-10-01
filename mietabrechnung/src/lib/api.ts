@@ -1,6 +1,6 @@
 import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Category, Cost, Person, Rent, Report } from "@shared/types.ts";
+import type { Category, Item, Person, Rent, Report } from "@shared/types.ts";
 
 // Relative URLs, damit die App hinter dem Home-Assistant-Ingress-Präfix funktioniert
 export async function api<T = unknown>(method: string, url: string, body?: unknown): Promise<T> {
@@ -31,7 +31,7 @@ export const usePersons = () => useQuery<Person[]>({ queryKey: ["persons"] });
 export const useCategories = () => useQuery<Category[]>({ queryKey: ["categories"] });
 export const useRents = () => useQuery<Rent[]>({ queryKey: ["rents"] });
 export const useYears = () => useQuery<number[]>({ queryKey: ["years"] });
-export const useCosts = (year: number) => useQuery<Cost[]>({ queryKey: [`costs?year=${year}`] });
+export const useItems = () => useQuery<Item[]>({ queryKey: ["items"] });
 export const useReport = (from: string, to: string) =>
   useQuery<Report>({ queryKey: [`report?from=${from}&to=${to}`], placeholderData: (prev) => prev });
 

@@ -1,4 +1,4 @@
-import type { Category, Cost, MonthReport, Person, PersonAmounts, Rent, Report } from "./types.ts";
+import type { Category, Charge, Item, MonthReport, Person, PersonAmounts, Rent, Report } from "./types.ts";
 
 /**
  * Teilt einen Cent-Betrag nach Gewichten auf, sodass die Summe exakt stimmt
@@ -56,6 +56,53 @@ export function rentForMonth(rents: Rent[], month: string): number {
   return current?.amount ?? 0;
 }
 
+/** Betrag eines Postens, der für eine Fälligkeit im angegebenen Monat gilt. */
+export function amountAt(item: Item, month: string): number {
+  let current = item.amounts[0];
+  for (const a of item.amounts) if (a.validFrom <= month && a.validFrom >= current.validFrom) current = a;
+  return current?.amount ?? 0;
+}
+
+/**
+ * Rechnet Posten in monatliche Belastungen für den Zeitraum from–to um.
+ * Wiederkehrende Beträge werden gleichmäßig auf die Monate ihres Turnus verteilt
+ * (z. B. Jahresbetrag / 12), einmalige Posten fallen voll im Startmonat an.
+ * Der Betrag einer Periode richtet sich nach dem Wert, der zu Periodenbeginn gilt.
+ */
+export function expandItems(items: Item[], from: string, to: string): Charge[] {
+  const lo = monthIndex(from);
+  const hi = monthIndex(to);
+  const out: Charge[] = [];
+  for (const item of items) {
+    if (item.amounts.length === 0) continue;
+    const start = monthIndex(item.startMonth);
+    const end = Math.min(item.endMonth ? monthIndex(item.endMonth) : Infinity, hi);
+    const push = (idx: number, amount: number) => {
+      if (idx >= lo && idx <= end && amount !== 0)
+        out.push({ itemId: item.id, categoryId: item.categoryId, month: monthFromIndex(idx), amount });
+    };
+
+    if (item.interval === 0) {
+      push(start, amountAt(item, item.startMonth));
+      continue;
+    }
+    const n = item.interval;
+    // erste Periode, die in den Zeitraum hineinreicht
+    let period = start + Math.max(0, Math.floor((lo - start) / n)) * n;
+    for (; period <= end; period += n) {
+      const parts = splitCents(amountAt(item, monthFromIndex(period)), Array(n).fill(1), period);
+      parts.forEach((p, j) => push(period + j, p));
+    }
+  }
+  return out;
+}
+
+/** Durchschnittlicher Monatsbetrag eines Postens zum angegebenen Monat. */
+export function monthlyAmount(item: Item, month: string): number {
+  if (item.interval === 0) return 0;
+  return Math.round(amountAt(item, month) / item.interval);
+}
+
 const emptyAmounts = (): PersonAmounts => ({ rent: 0, costs: 0, total: 0 });
 
 export function buildReport(
@@ -64,7 +111,7 @@ export function buildReport(
   persons: Person[],
   categories: Category[],
   rents: Rent[],
-  costs: Cost[],
+  charges: Charge[],
 ): Report {
   const tenants = persons.filter((p) => p.role === "tenant");
   const shares = persons.map((p) => p.shares);
@@ -76,7 +123,7 @@ export function buildReport(
   for (const p of persons) totals.perPerson[p.id] = emptyAmounts();
 
   const months: MonthReport[] = monthRange(from, to).map((month) => {
-    const mr: MonthReport = { month, rentTotal: 0, costTotal: 0, byCategory: {}, persons: {} };
+    const mr: MonthReport = { month, rentTotal: 0, costTotal: 0, byCategory: {}, byItem: {}, persons: {} };
     for (const p of persons) mr.persons[p.id] = emptyAmounts();
 
     // Miete: Gesamtbetrag zu gleichen Teilen auf die Mieter
@@ -84,12 +131,13 @@ export function buildReport(
     const rentSplit = splitCents(mr.rentTotal, tenants.map(() => 1), monthIndex(month));
     tenants.forEach((t, i) => (mr.persons[t.id].rent = rentSplit[i]));
 
-    // Nebenkosten: jeder Posten nach Anteilen auf alle Personen
-    for (const c of costs) {
+    // Nebenkosten: jede Monatsbelastung nach Anteilen auf alle Personen
+    for (const c of charges) {
       if (c.month !== month) continue;
       mr.costTotal += c.amount;
       mr.byCategory[c.categoryId] = (mr.byCategory[c.categoryId] ?? 0) + c.amount;
-      const split = splitCents(c.amount, shares, c.id);
+      mr.byItem[c.itemId] = (mr.byItem[c.itemId] ?? 0) + c.amount;
+      const split = splitCents(c.amount, shares, c.itemId + monthIndex(month));
       const cat = catMap.get(c.categoryId);
       if (cat) cat.total += c.amount;
       persons.forEach((p, i) => {

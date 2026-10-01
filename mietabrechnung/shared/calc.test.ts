@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildReport, rentForMonth, splitCents } from "./calc.ts";
-import type { Person } from "./types.ts";
+import { amountAt, buildReport, expandItems, rentForMonth, splitCents } from "./calc.ts";
+import type { Item, Person } from "./types.ts";
 
 const persons: Person[] = [
   { id: 1, name: "Dan", role: "owner", shares: 1, color: "", sort: 0 },
@@ -50,9 +50,9 @@ test("buildReport: Miete nur Mieter, Nebenkosten durch 4, Summen konsistent", ()
     { id: 2, amount: 130000, validFrom: "2026-07", note: "" },
   ];
   const costs = [
-    { id: 1, categoryId: 1, description: "", amount: 10001, month: "2026-01", note: "" },
-    { id: 2, categoryId: 2, description: "", amount: 4999, month: "2026-01", note: "" },
-    { id: 3, categoryId: 1, description: "", amount: 333, month: "2026-08", note: "" },
+    { itemId: 1, categoryId: 1, amount: 10001, month: "2026-01" },
+    { itemId: 2, categoryId: 2, amount: 4999, month: "2026-01" },
+    { itemId: 3, categoryId: 1, amount: 333, month: "2026-08" },
   ];
   const r = buildReport("2026-01", "2026-12", persons, cats, rents, costs);
 
@@ -75,4 +75,51 @@ test("buildReport: Miete nur Mieter, Nebenkosten durch 4, Summen konsistent", ()
     const s = Object.values(c.perPerson).reduce((a, b) => a + b, 0);
     assert.equal(s, c.total);
   }
+});
+
+const item = (p: Partial<Item>): Item => ({
+  id: 1, categoryId: 1, description: "", note: "", interval: 1, startMonth: "2026-01", endMonth: null,
+  amounts: [{ id: 1, validFrom: "2026-01", amount: 10000 }], ...p,
+});
+const sumBy = (cs: { month: string; amount: number }[]) =>
+  cs.reduce<Record<string, number>>((a, c) => ((a[c.month] = (a[c.month] ?? 0) + c.amount), a), {});
+
+test("amountAt: Betrag gilt bis zur nächsten Änderung", () => {
+  const it = item({ amounts: [{ id: 1, validFrom: "2026-01", amount: 100 }, { id: 2, validFrom: "2026-05", amount: 150 }] });
+  assert.equal(amountAt(it, "2025-11"), 100);
+  assert.equal(amountAt(it, "2026-04"), 100);
+  assert.equal(amountAt(it, "2026-05"), 150);
+  assert.equal(amountAt(it, "2030-01"), 150);
+});
+
+test("expandItems: monatlich läuft weiter, Änderung ab Monat X", () => {
+  const it = item({ amounts: [{ id: 1, validFrom: "2026-01", amount: 9000 }, { id: 2, validFrom: "2026-04", amount: 9500 }] });
+  const m = sumBy(expandItems([it], "2025-10", "2026-06"));
+  assert.deepEqual(m, { "2026-01": 9000, "2026-02": 9000, "2026-03": 9000, "2026-04": 9500, "2026-05": 9500, "2026-06": 9500 });
+});
+
+test("expandItems: jährlich wird auf 12 Monate verteilt, Summe exakt", () => {
+  const it = item({ interval: 12, startMonth: "2026-02", amounts: [{ id: 1, validFrom: "2026-02", amount: 60001 }] });
+  const cs = expandItems([it], "2026-01", "2027-12");
+  const m = sumBy(cs);
+  assert.equal(m["2026-01"], undefined);
+  assert.ok(Math.abs(m["2026-02"] - 5000) <= 1);
+  const firstPeriod = cs.filter((c) => c.month >= "2026-02" && c.month <= "2027-01").reduce((s, c) => s + c.amount, 0);
+  assert.equal(firstPeriod, 60001);
+  assert.equal(cs.length, 23); // Feb 2026 – Dez 2027
+});
+
+test("expandItems: Quartal, Zeitraum mitten in Periode, Betragswechsel zu Periodenbeginn", () => {
+  const it = item({ interval: 3, startMonth: "2026-01", amounts: [{ id: 1, validFrom: "2026-01", amount: 30000 }, { id: 2, validFrom: "2026-05", amount: 36000 }] });
+  const m = sumBy(expandItems([it], "2026-02", "2026-09"));
+  // Q2 beginnt im April → gilt noch alter Betrag; Q3 ab Juli → neuer Betrag
+  assert.deepEqual(m, { "2026-02": 10000, "2026-03": 10000, "2026-04": 10000, "2026-05": 10000, "2026-06": 10000, "2026-07": 12000, "2026-08": 12000, "2026-09": 12000 });
+});
+
+test("expandItems: Ende und einmalige Posten", () => {
+  const ended = item({ id: 2, endMonth: "2026-03" });
+  const once = item({ id: 3, interval: 0, startMonth: "2026-05", amounts: [{ id: 3, validFrom: "2026-05", amount: 25000 }] });
+  const m = sumBy(expandItems([ended, once], "2026-01", "2026-12"));
+  assert.deepEqual(m, { "2026-01": 10000, "2026-02": 10000, "2026-03": 10000, "2026-05": 25000 });
+  assert.deepEqual(expandItems([once], "2026-06", "2026-12"), []);
 });

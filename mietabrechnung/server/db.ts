@@ -28,16 +28,49 @@ db.exec(`
     valid_from TEXT NOT NULL UNIQUE,
     note TEXT NOT NULL DEFAULT ''
   );
-  CREATE TABLE IF NOT EXISTS costs (
+  CREATE TABLE IF NOT EXISTS items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category_id INTEGER NOT NULL REFERENCES categories(id),
     description TEXT NOT NULL DEFAULT '',
-    amount INTEGER NOT NULL,
-    month TEXT NOT NULL,
-    note TEXT NOT NULL DEFAULT ''
+    note TEXT NOT NULL DEFAULT '',
+    interval INTEGER NOT NULL CHECK (interval IN (0, 1, 3, 6, 12)),
+    start_month TEXT NOT NULL,
+    end_month TEXT
   );
-  CREATE INDEX IF NOT EXISTS costs_month ON costs(month);
+  CREATE TABLE IF NOT EXISTS item_amounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    valid_from TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    UNIQUE (item_id, valid_from)
+  );
 `);
+
+// Migration 1.0.0 → 1.1.0: einzelne Monatsposten werden zu einmaligen Posten
+const hasOldCosts = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'costs'").get();
+if (hasOldCosts) {
+  db.exec("BEGIN");
+  try {
+    const old = db.prepare("SELECT category_id, description, amount, month, note FROM costs ORDER BY month, id").all() as {
+      category_id: number;
+      description: string;
+      amount: number;
+      month: string;
+      note: string;
+    }[];
+    const insItem = db.prepare("INSERT INTO items (category_id, description, note, interval, start_month) VALUES (?, ?, ?, 0, ?)");
+    const insAmount = db.prepare("INSERT INTO item_amounts (item_id, valid_from, amount) VALUES (?, ?, ?)");
+    for (const c of old) {
+      const r = insItem.run(c.category_id, c.description, c.note, c.month);
+      insAmount.run(r.lastInsertRowid, c.month, c.amount);
+    }
+    db.exec("DROP TABLE costs");
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
 
 // Erststart: Personen und Standard-Kategorien anlegen
 const personCount = db.prepare("SELECT COUNT(*) AS n FROM persons").get() as { n: number };

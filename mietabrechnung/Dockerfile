@@ -17,7 +17,7 @@ COPY --from=build /app/dist ./dist
 
 LABEL io.hass.type="addon" \
       io.hass.name="Mietabrechnung" \
-      io.hass.version="1.0.0"
+      io.hass.version="1.1.0"
 
 EXPOSE 8099
 CMD ["node", "--disable-warning=ExperimentalWarning", "dist/server.js"]

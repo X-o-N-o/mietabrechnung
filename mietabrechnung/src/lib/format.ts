@@ -39,3 +39,12 @@ export function percentChange(now: number, before: number): number | null {
   if (before === 0) return null;
   return ((now - before) / Math.abs(before)) * 100;
 }
+
+export const INTERVALS = [
+  { value: 1, label: "Monatlich", per: "Monat" },
+  { value: 3, label: "Vierteljährlich", per: "Quartal" },
+  { value: 6, label: "Halbjährlich", per: "Halbjahr" },
+  { value: 12, label: "Jährlich", per: "Jahr" },
+  { value: 0, label: "Einmalig", per: "" },
+] as const;
+export const intervalInfo = (n: number) => INTERVALS.find((i) => i.value === n) ?? INTERVALS[0];
