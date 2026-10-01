@@ -1,0 +1,8 @@
+# Lokaler Test ohne Home Assistant: docker compose up --build → http://localhost:8099
+services:
+  mietabrechnung:
+    build: ./mietabrechnung
+    ports:
+      - "8099:8099"
+    volumes:
+      - ./.data:/data

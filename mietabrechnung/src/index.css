@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 246 247 249;
+  --surface: 255 255 255;
+  --raised: 241 243 246;
+  --line: 226 229 234;
+  --fg: 17 20 27;
+  --muted: 92 99 112;
+  --subtle: 140 146 158;
+  --accent: 5 150 105;
+  --accent-fg: 255 255 255;
+  --danger: 220 38 38;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: 9 11 16;
+  --surface: 16 19 26;
+  --raised: 24 28 37;
+  --line: 36 41 53;
+  --fg: 236 238 243;
+  --muted: 150 157 172;
+  --subtle: 98 106 122;
+  --accent: 52 211 153;
+  --accent-fg: 3 28 20;
+  --danger: 248 113 113;
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  * {
+    @apply border-line;
+  }
+  ::selection {
+    background: rgb(var(--accent) / 0.3);
+  }
+}
+
+@layer utilities {
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Recharts: Fokus-Rahmen ausblenden */
+.recharts-wrapper *:focus {
+  outline: none;
+}
