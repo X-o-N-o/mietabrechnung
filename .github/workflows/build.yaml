@@ -44,7 +44,9 @@ jobs:
 
       - name: Version aus config.yaml lesen
         id: version
-        run: echo "version=$(sed -nE 's/^version: *"?([^"]+)"?/\1/p' mietabrechnung/config.yaml)" >> "$GITHUB_OUTPUT"
+        run: |
+          version=$(sed -nE 's/^version: *"?([^"]+)"?/\1/p' mietabrechnung/config.yaml)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
