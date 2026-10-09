@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Moon, Pencil, Plus, RefreshCw, Sun, Trash2, Zap } from "lucide-react";
 import type { Category, Person, Role } from "@shared/types.ts";
 import { api, useApiMutation, useCategories, useOstrom, usePersons } from "@/lib/api";
@@ -235,7 +236,7 @@ function CategoryDialog({ open, onOpenChange, category }: { open: boolean; onOpe
 
 function OstromCard() {
   const { data } = useOstrom();
-  const sync = useApiMutation(() => api("POST", "ostrom/sync"), "Ostrom abgerufen");
+  const sync = useApiMutation(() => api<{ notice: string | null }>("POST", "ostrom/sync?force=1"));
   if (!data) return null;
 
   return (
@@ -252,12 +253,20 @@ function OstromCard() {
             : data.lastError
               ? `Fehler: ${data.lastError}`
               : data.lastSync
-                ? `Zuletzt abgerufen ${new Date(data.lastSync).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })} · automatisch alle 6 Stunden`
+                ? `Zuletzt abgerufen ${new Date(data.lastSync).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })} · neue Monate werden automatisch geholt`
                 : "Eingerichtet – lege einen Nebenkostenposten „Automatisch aus Ostrom“ an"
         }
         action={
           data.configured && (
-            <Button size="sm" disabled={sync.isPending} onClick={() => sync.mutate(undefined)}>
+            <Button
+              size="sm"
+              disabled={sync.isPending}
+              onClick={() =>
+                sync.mutate(undefined, {
+                  onSuccess: (r) => (r.notice ? toast.info(r.notice) : toast.success("Ostrom abgerufen")),
+                })
+              }
+            >
               <RefreshCw className={cn("h-3.5 w-3.5", sync.isPending && "animate-spin")} /> Abrufen
             </Button>
           )

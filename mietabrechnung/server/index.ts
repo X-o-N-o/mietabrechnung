@@ -274,9 +274,9 @@ app.delete(
 app.get("/api/ostrom", route(() => ostromStatus()));
 app.post(
   "/api/ostrom/sync",
-  async (_req: Request, res: Response) => {
-    await syncOstrom();
-    res.json(ostromStatus());
+  async (req: Request, res: Response) => {
+    const notice = await syncOstrom(req.query.force === "1");
+    res.json({ ...ostromStatus(), notice });
   },
 );
 

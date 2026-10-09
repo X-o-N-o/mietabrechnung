@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1
+
+- Ostrom wird nur noch angefragt, wenn etwas fällig ist: neue abgeschlossene Monate sowie
+  Nachkorrekturen bis 7 Tage nach Monatsende (höchstens einmal pro Tag). Vertragsdaten werden
+  zwischengespeichert, der Knopf „Abrufen“ ist auf einmal pro 15 Minuten begrenzt.
+- Jede Anfrage an Ostrom erscheint im Add-on-Log.
+
 ## 1.2.0
 
 - Ostrom-Anbindung: Ein Nebenkostenposten kann „Automatisch aus Ostrom“ kommen. Die App

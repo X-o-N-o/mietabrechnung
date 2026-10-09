@@ -29,8 +29,11 @@ Client-ID und Secret in der Add-on-Konfiguration eintragen (Vertragsnummer nur b
 Danach beim Posten „Strom“ die Option „Automatisch aus Ostrom“ aktivieren.
 
 Je abgeschlossenem Monat: Σ Stundenverbrauch × (Börsenpreis + Steuern/Umlagen) + Grundgebühr +
-Netzentgelt. Der laufende Monat wird mit dem Vormonat angesetzt. Die letzten zwei Monate werden
-bei jedem Abgleich neu berechnet, falls Messwerte nachgeliefert werden.
+Netzentgelt. Der laufende Monat wird mit dem Vormonat angesetzt.
+
+Damit Ostrom den Zugang nicht sperrt, fragt die App sparsam an: nur fehlende abgeschlossene Monate
+und – für nachgelieferte Messwerte – Monate bis 7 Tage nach Monatsende höchstens einmal täglich.
+Im Normalbetrieb sind das wenige Anfragen am Monatsanfang, sonst keine. Jede Anfrage steht im Add-on-Log.
 
 ## Daten
 
