@@ -1,5 +1,5 @@
 name: Mietabrechnung
-version: "1.1.0"
+version: "1.2.0"
 slug: mietabrechnung
 description: Miete und Nebenkosten erfassen, nach Anteilen aufteilen und abrechnen
 url: https://github.com/X-o-N-o/mietabrechnung
@@ -21,3 +21,12 @@ ports:
 ports_description:
   8099/tcp: Direktzugriff auf die Weboberfläche (ohne Anmeldung)
 backup: hot
+# Optional: Ostrom-Zugang (developer.ostrom-api.io → Production Client) für automatische Stromkosten
+options:
+  ostrom_client_id: ""
+  ostrom_client_secret: ""
+  ostrom_contract_id: ""
+schema:
+  ostrom_client_id: str?
+  ostrom_client_secret: password?
+  ostrom_contract_id: str?

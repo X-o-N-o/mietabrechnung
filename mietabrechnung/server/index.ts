@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { db } from "./db.ts";
+import { ostromConfig, ostromStatus, startOstromSchedule, syncOstrom } from "./ostrom.ts";
 import { buildReport, expandItems, monthIndex } from "../shared/calc.ts";
 import type { Category, Item, ItemAmount, Person, Rent } from "../shared/types.ts";
 
@@ -155,7 +156,7 @@ const INTERVALS = [0, 1, 3, 6, 12];
 function getItems(): Item[] {
   const items = db
     .prepare(
-      "SELECT id, category_id AS categoryId, description, note, interval, start_month AS startMonth, end_month AS endMonth FROM items ORDER BY start_month, id",
+      "SELECT id, category_id AS categoryId, description, note, interval, start_month AS startMonth, end_month AS endMonth, source FROM items ORDER BY start_month, id",
     )
     .all() as unknown as Item[];
   const amounts = db
@@ -171,13 +172,16 @@ function itemInput(b: any) {
   const startMonth = month(b.startMonth, "Erste Fälligkeit");
   const endMonth = b.endMonth ? month(b.endMonth, "Ende") : null;
   if (endMonth && endMonth < startMonth) throw new HttpError(400, "Das Ende liegt vor der ersten Fälligkeit");
+  const source = b.source === "ostrom" ? "ostrom" : null;
+  if (source && !ostromConfig()) throw new HttpError(400, "Ostrom ist nicht eingerichtet");
   return {
+    source,
     categoryId: int(b.categoryId, "Kategorie"),
     description: str(b.description, "Beschreibung", { required: false }),
     note: str(b.note, "Notiz", { required: false, max: 1000 }),
-    interval: b.interval as number,
+    interval: source ? 1 : (b.interval as number),
     startMonth,
-    endMonth: b.interval === 0 ? null : endMonth,
+    endMonth: b.interval === 0 && !source ? null : endMonth,
   };
 }
 
@@ -198,14 +202,17 @@ app.post(
   "/api/items",
   route((req) => {
     const i = itemInput(req.body);
-    const amount = int(req.body.amount, "Betrag");
-    return inTransaction(() => {
+    // Bei automatischen Posten startet der Betrag bei 0 und wird beim Abgleich gefüllt
+    const amount = i.source ? 0 : int(req.body.amount, "Betrag");
+    const created = inTransaction(() => {
       const r = db
-        .prepare("INSERT INTO items (category_id, description, note, interval, start_month, end_month) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(i.categoryId, i.description, i.note, i.interval, i.startMonth, i.endMonth);
+        .prepare("INSERT INTO items (category_id, description, note, interval, start_month, end_month, source) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(i.categoryId, i.description, i.note, i.interval, i.startMonth, i.endMonth, i.source);
       db.prepare("INSERT INTO item_amounts (item_id, valid_from, amount) VALUES (?, ?, ?)").run(r.lastInsertRowid, i.startMonth, amount);
       return { id: Number(r.lastInsertRowid) };
     });
+    if (i.source) void syncOstrom();
+    return created;
   }),
 );
 app.put(
@@ -216,14 +223,15 @@ app.put(
     inTransaction(() => {
       changed(
         db
-          .prepare("UPDATE items SET category_id = ?, description = ?, note = ?, interval = ?, start_month = ?, end_month = ? WHERE id = ?")
-          .run(i.categoryId, i.description, i.note, i.interval, i.startMonth, i.endMonth, itemId),
+          .prepare("UPDATE items SET category_id = ?, description = ?, note = ?, interval = ?, start_month = ?, end_month = ?, source = ? WHERE id = ?")
+          .run(i.categoryId, i.description, i.note, i.interval, i.startMonth, i.endMonth, i.source, itemId),
       );
       // Der früheste Betrag beginnt immer mit der ersten Fälligkeit
       db.prepare(
         "UPDATE item_amounts SET valid_from = ? WHERE id = (SELECT id FROM item_amounts WHERE item_id = ? ORDER BY valid_from LIMIT 1) AND valid_from > ?",
       ).run(i.startMonth, itemId, i.startMonth);
     });
+    if (i.source) void syncOstrom();
   }),
 );
 app.delete("/api/items/:id", route((req) => void changed(db.prepare("DELETE FROM items WHERE id = ?").run(id(req)))));
@@ -260,6 +268,16 @@ app.delete(
     if (n.n <= 1) throw new HttpError(409, "Der letzte Betrag kann nicht gelöscht werden");
     changed(db.prepare("DELETE FROM item_amounts WHERE id = ? AND item_id = ?").run(Number(req.params.aid), id(req)));
   }),
+);
+
+// ---------- Ostrom ----------
+app.get("/api/ostrom", route(() => ostromStatus()));
+app.post(
+  "/api/ostrom/sync",
+  async (_req: Request, res: Response) => {
+    await syncOstrom();
+    res.json(ostromStatus());
+  },
 );
 
 // ---------- Auswertung ----------
@@ -306,3 +324,4 @@ if (fs.existsSync(publicDir)) {
 
 const port = Number(process.env.PORT || 8099);
 app.listen(port, () => console.log(`Mietabrechnung läuft auf Port ${port}`));
+startOstromSchedule();

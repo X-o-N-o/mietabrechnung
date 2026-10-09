@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- Ostrom-Anbindung: Ein Nebenkostenposten kann „Automatisch aus Ostrom“ kommen. Die App
+  berechnet die Stromkosten jedes abgeschlossenen Monats aus Smart-Meter-Verbrauch ×
+  stündlichem Preis inkl. Steuern/Umlagen plus Grundgebühr und Netzentgelt.
+- Abgleich beim Start und alle 6 Stunden; Übersicht und manueller Abruf in den Einstellungen.
+
 ## 1.1.0
 
 - Nebenkosten sind jetzt wiederkehrende Posten mit Turnus (monatlich, vierteljährlich,

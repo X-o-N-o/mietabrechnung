@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Moon, Pencil, Plus, Sun, Trash2 } from "lucide-react";
+import { Moon, Pencil, Plus, RefreshCw, Sun, Trash2, Zap } from "lucide-react";
 import type { Category, Person, Role } from "@shared/types.ts";
-import { api, useApiMutation, useCategories, usePersons } from "@/lib/api";
+import { api, useApiMutation, useCategories, useOstrom, usePersons } from "@/lib/api";
+import { formatEuro, monthLabel } from "@/lib/format";
 import { useTheme } from "@/components/layout";
 import { Avatar, Badge, Button, Card, CardHeader, ColorPicker, ConfirmButton, Dialog, Dot, Field, Input, PRESET_COLORS, PageHeader, Select } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -100,6 +101,8 @@ export default function SettingsPage() {
             ))}
           </ul>
         </Card>
+
+        <OstromCard />
 
         <Card className="p-5 lg:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -227,5 +230,73 @@ function CategoryDialog({ open, onOpenChange, category }: { open: boolean; onOpe
         </div>
       </form>
     </Dialog>
+  );
+}
+
+function OstromCard() {
+  const { data } = useOstrom();
+  const sync = useApiMutation(() => api("POST", "ostrom/sync"), "Ostrom abgerufen");
+  if (!data) return null;
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader
+        title={
+          <span className="flex items-center gap-2">
+            <Zap className="h-4 w-4 text-accent" /> Ostrom
+          </span>
+        }
+        subtitle={
+          !data.configured
+            ? "Nicht eingerichtet – Zugangsdaten in der Add-on-Konfiguration eintragen"
+            : data.lastError
+              ? `Fehler: ${data.lastError}`
+              : data.lastSync
+                ? `Zuletzt abgerufen ${new Date(data.lastSync).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })} · automatisch alle 6 Stunden`
+                : "Eingerichtet – lege einen Nebenkostenposten „Automatisch aus Ostrom“ an"
+        }
+        action={
+          data.configured && (
+            <Button size="sm" disabled={sync.isPending} onClick={() => sync.mutate(undefined)}>
+              <RefreshCw className={cn("h-3.5 w-3.5", sync.isPending && "animate-spin")} /> Abrufen
+            </Button>
+          )
+        }
+      />
+      {data.months.length > 0 && (
+        <div className="overflow-x-auto px-5 pb-4 pt-3">
+          <table className="w-full min-w-[480px] text-sm">
+            <thead>
+              <tr className="text-[12px] uppercase tracking-wide text-subtle">
+                <th className="py-2 text-left font-medium">Monat</th>
+                <th className="py-2 text-right font-medium">Verbrauch</th>
+                <th className="py-2 text-right font-medium">Energie</th>
+                <th className="py-2 text-right font-medium">Gebühren</th>
+                <th className="py-2 text-right font-medium">Gesamt</th>
+                <th className="py-2 text-right font-medium">Ø ct/kWh</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {data.months.slice(0, 12).map((m) => (
+                <tr key={m.month}>
+                  <td className="py-2">{monthLabel(m.month)}</td>
+                  <td className="py-2 text-right text-muted tnum">{m.kwh.toLocaleString("de-DE", { maximumFractionDigits: 1 })} kWh</td>
+                  <td className="py-2 text-right text-muted tnum">{formatEuro(m.energyAmount)}</td>
+                  <td className="py-2 text-right text-muted tnum">{formatEuro(m.feesAmount)}</td>
+                  <td className="py-2 text-right font-medium tnum">{formatEuro(m.amount)}</td>
+                  <td className="py-2 text-right text-subtle tnum">
+                    {m.kwh ? (m.amount / m.kwh).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "–"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 text-xs text-subtle">
+            Berechnet aus Stundenverbrauch × Börsenpreis inkl. Steuern und Umlagen plus monatlicher Grundgebühr und Netzentgelt.
+            Kleine Abweichungen zur Ostrom-Rechnung sind möglich.
+          </p>
+        </div>
+      )}
+    </Card>
   );
 }

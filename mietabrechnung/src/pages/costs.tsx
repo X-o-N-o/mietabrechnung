@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pencil, Plus, Receipt, Repeat, Trash2, TrendingUp } from "lucide-react";
+import { Pencil, Plus, Receipt, Repeat, Trash2, TrendingUp, Zap } from "lucide-react";
 import type { Item } from "@shared/types.ts";
 import { amountAt } from "@shared/calc.ts";
 import { api, useApiMutation, useCategories, useItems, usePersons, useReport } from "@/lib/api";
@@ -120,7 +120,7 @@ export default function CostsPage() {
                     const ref = g.key === "planned" ? i.startMonth : g.key === "ended" ? (i.endMonth ?? i.startMonth) : now;
                     const current = amountAt(i, ref);
                     const perMonth = i.interval > 0 ? Math.round(current / i.interval) : current;
-                    const pendingChange = i.amounts.find((a) => a.validFrom > now && a.validFrom > i.startMonth);
+                    const pendingChange = i.source ? undefined : i.amounts.find((a) => a.validFrom > now && a.validFrom > i.startMonth);
                     return (
                       <li key={i.id} className={cn("group flex items-start gap-3 px-4 py-3.5 sm:items-center sm:px-5", g.key === "ended" && "opacity-70")}>
                         <Dot color={cat?.color ?? "#64748b"} className="mt-1.5 sm:mt-0" />
@@ -134,7 +134,13 @@ export default function CostsPage() {
                           </div>
                           <div className="mt-1 flex items-center justify-between gap-3">
                             <p className="flex min-w-0 items-center gap-2 text-xs text-subtle">
-                              <Badge className="shrink-0">{info.label}</Badge>
+                              {i.source === "ostrom" ? (
+                                <Badge className="shrink-0 gap-1 bg-accent/15 text-accent">
+                                  <Zap className="h-3 w-3" /> Ostrom
+                                </Badge>
+                              ) : (
+                                <Badge className="shrink-0">{info.label}</Badge>
+                              )}
                               <span className="truncate">
                                 {[
                                   i.description,
@@ -161,7 +167,7 @@ export default function CostsPage() {
                           )}
                         </button>
                         <div className="hidden sm:flex sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:focus-within:opacity-100">
-                          {i.interval !== 0 && (
+                          {i.interval !== 0 && !i.source && (
                             <Button variant="ghost" size="icon" aria-label="Betrag ändern" title="Betrag ändern" onClick={() => setAmountDialog({ open: true, itemId: i.id })}>
                               <TrendingUp className="h-4 w-4" />
                             </Button>

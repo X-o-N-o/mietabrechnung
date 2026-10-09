@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 
-const dataDir = process.env.DATA_DIR || "/data";
+export const dataDir = process.env.DATA_DIR || "/data";
 fs.mkdirSync(dataDir, { recursive: true });
 
 export const db = new DatabaseSync(path.join(dataDir, "mietabrechnung.db"));
@@ -71,6 +71,24 @@ if (hasOldCosts) {
     throw e;
   }
 }
+
+// Migration 1.1.0 → 1.2.0: automatische Quellen (Ostrom) und deren Monatswerte
+const itemCols = db.prepare("PRAGMA table_info(items)").all() as { name: string }[];
+if (!itemCols.some((c) => c.name === "source")) db.exec("ALTER TABLE items ADD COLUMN source TEXT");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ostrom_months (
+    month TEXT PRIMARY KEY,
+    kwh REAL NOT NULL,
+    amount INTEGER NOT NULL,
+    energy_amount INTEGER NOT NULL,
+    fees_amount INTEGER NOT NULL,
+    synced_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
+`);
 
 // Erststart: Personen und Standard-Kategorien anlegen
 const personCount = db.prepare("SELECT COUNT(*) AS n FROM persons").get() as { n: number };

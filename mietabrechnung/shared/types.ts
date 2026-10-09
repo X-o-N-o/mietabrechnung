@@ -42,7 +42,15 @@ export interface Item {
   interval: Interval;
   startMonth: string; // erste Fälligkeit
   endMonth: string | null; // letzter berechneter Monat (einschließlich)
+  source: "ostrom" | null; // Beträge werden automatisch abgerufen
   amounts: ItemAmount[]; // aufsteigend nach validFrom
+}
+
+export interface OstromStatus {
+  configured: boolean;
+  lastSync: string | null;
+  lastError: string | null;
+  months: { month: string; kwh: number; amount: number; energyAmount: number; feesAmount: number }[];
 }
 
 /** Auf einen Monat entfallender Anteil eines Postens */

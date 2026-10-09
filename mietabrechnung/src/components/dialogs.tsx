@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Zap } from "lucide-react";
 import type { Item, Rent } from "@shared/types.ts";
 import { amountAt } from "@shared/calc.ts";
-import { api, useApiMutation, useCategories, usePersons } from "@/lib/api";
+import { api, useApiMutation, useCategories, useOstrom, usePersons } from "@/lib/api";
 import { INTERVALS, centsToInput, currentMonth, formatEuro, intervalInfo, monthLabel, parseEuro } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { Button, ConfirmButton, Dialog, Field, Input, Select } from "./ui";
@@ -81,7 +81,8 @@ export function ItemDialog({
 }) {
   const { data: categoriesData } = useCategories();
   const categories = categoriesData ?? [];
-  const [form, setForm] = useState({ categoryId: "", interval: 1, startMonth: "", endMonth: "", amount: "", description: "", note: "" });
+  const { data: ostrom } = useOstrom();
+  const [form, setForm] = useState({ categoryId: "", interval: 1, startMonth: "", endMonth: "", amount: "", description: "", note: "", ostrom: false });
   const [newAmount, setNewAmount] = useState({ validFrom: "", amount: "" });
 
   // Formular nur beim Öffnen befüllen (bzw. sobald die Kategorien geladen sind)
@@ -98,8 +99,18 @@ export function ItemDialog({
             amount: "",
             description: item.description,
             note: item.note,
+            ostrom: item.source === "ostrom",
           }
-        : { categoryId: String(categories[0]?.id ?? ""), interval: 1, startMonth: defaultMonth ?? currentMonth(), endMonth: "", amount: "", description: "", note: "" },
+        : {
+            categoryId: String(categories[0]?.id ?? ""),
+            interval: 1,
+            startMonth: defaultMonth ?? currentMonth(),
+            endMonth: "",
+            amount: "",
+            description: "",
+            note: "",
+            ostrom: false,
+          },
     );
     setNewAmount({ validFrom: currentMonth(), amount: "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,10 +122,15 @@ export function ItemDialog({
     !!form.categoryId &&
     MONTH_RE.test(form.startMonth) &&
     (!form.endMonth || form.endMonth >= form.startMonth) &&
-    (item ? true : amount !== null);
+    (item || form.ostrom ? true : amount !== null);
 
   const save = useApiMutation(
-    (body: object) => (item ? api("PUT", `items/${item.id}`, body) : api("POST", "items", body)),
+    async (body: { source: string | null } & Record<string, unknown>) => {
+      const r = await (item ? api("PUT", `items/${item.id}`, body) : api("POST", "items", body));
+      // Ostrom-Beträge sofort abrufen, damit der Posten nicht mit 0 € erscheint
+      if (body.source) await api("POST", "ostrom/sync");
+      return r;
+    },
     item ? "Posten gespeichert" : "Posten angelegt",
   );
   const addAmount = useApiMutation((b: { validFrom: string; amount: number }) => api("POST", `items/${item!.id}/amounts`, b), "Betrag gespeichert");
@@ -133,6 +149,7 @@ export function ItemDialog({
         amount,
         description: form.description,
         note: form.note,
+        source: form.ostrom ? "ostrom" : null,
       },
       { onSuccess: () => onOpenChange(false) },
     );
@@ -160,11 +177,32 @@ export function ItemDialog({
             ))}
           </Select>
         </Field>
-        <Field label="Turnus">
-          <IntervalPicker value={form.interval} onChange={(interval) => setForm((f) => ({ ...f, interval }))} />
-        </Field>
+        {ostrom?.configured && (
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-bg/40 p-3">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 accent-[rgb(var(--accent))]"
+              checked={form.ostrom}
+              onChange={(e) => setForm((f) => ({ ...f, ostrom: e.target.checked, interval: e.target.checked ? 1 : f.interval }))}
+            />
+            <span>
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                <Zap className="h-3.5 w-3.5 text-accent" /> Automatisch aus Ostrom
+              </span>
+              <span className="mt-0.5 block text-xs text-subtle">
+                Monatskosten aus Smart-Meter-Verbrauch × stündlichem Preis inkl. Steuern, Grundgebühr und Netzentgelt. Der laufende Monat
+                wird mit dem Vormonat angesetzt, bis er abgeschlossen ist.
+              </span>
+            </span>
+          </label>
+        )}
+        {!form.ostrom && (
+          <Field label="Turnus">
+            <IntervalPicker value={form.interval} onChange={(interval) => setForm((f) => ({ ...f, interval }))} />
+          </Field>
+        )}
         <div className="grid grid-cols-2 gap-3">
-          <Field label={form.interval === 0 ? "Monat" : "Erste Fälligkeit"}>
+          <Field label={form.ostrom ? "Abrechnen ab" : form.interval === 0 ? "Monat" : "Erste Fälligkeit"}>
             <Input type="month" value={form.startMonth} onChange={set("startMonth")} required />
           </Field>
           {form.interval !== 0 && (
@@ -173,7 +211,7 @@ export function ItemDialog({
             </Field>
           )}
         </div>
-        {!item && (
+        {!item && !form.ostrom && (
           <Field label={form.interval === 0 ? "Betrag (ganzes Haus)" : `Betrag je ${per} (ganzes Haus)`} hint={hint ?? "z. B. 245,80"}>
             <EuroInput autoFocus value={form.amount} onChange={(amount) => setForm((f) => ({ ...f, amount }))} />
           </Field>
@@ -207,7 +245,7 @@ export function ItemDialog({
                 </li>
               ))}
             </ul>
-            {item.interval !== 0 && (
+            {item.interval !== 0 && !form.ostrom && (
               <div className="mt-3 flex items-end gap-2 border-t border-line pt-3">
                 <Field label="Neu ab" className="w-[150px] shrink-0">
                   <Input type="month" value={newAmount.validFrom} onChange={(e) => setNewAmount((n) => ({ ...n, validFrom: e.target.value }))} />

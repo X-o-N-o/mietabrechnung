@@ -21,6 +21,17 @@ Erfasst die Miete und die Nebenkosten des ganzen Hauses und teilt sie auf.
 
 Änderungen an Personen oder Anteilen wirken sich rückwirkend auf alle Monate aus.
 
+## Ostrom (dynamischer Stromtarif)
+
+Optional können die Stromkosten automatisch aus Ostrom kommen. Dafür im
+[Ostrom-Entwicklerportal](https://developer.ostrom-api.io) einen „Production Client“ anlegen und
+Client-ID und Secret in der Add-on-Konfiguration eintragen (Vertragsnummer nur bei mehreren Verträgen).
+Danach beim Posten „Strom“ die Option „Automatisch aus Ostrom“ aktivieren.
+
+Je abgeschlossenem Monat: Σ Stundenverbrauch × (Börsenpreis + Steuern/Umlagen) + Grundgebühr +
+Netzentgelt. Der laufende Monat wird mit dem Vormonat angesetzt. Die letzten zwei Monate werden
+bei jedem Abgleich neu berechnet, falls Messwerte nachgeliefert werden.
+
 ## Daten
 
 Die Datenbank liegt unter `/data/mietabrechnung.db` und ist in Home-Assistant-Backups enthalten.

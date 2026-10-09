@@ -1,6 +1,6 @@
 {
   "name": "mietabrechnung",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "build": "vite build && esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.js",
     "start": "node dist/server.js",
     "check": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test shared/calc.test.ts"
+    "test": "node --experimental-strip-types --test shared/calc.test.ts shared/ostrom.test.ts"
   },
   "dependencies": {
     "express": "^4.21.2"

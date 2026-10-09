@@ -78,7 +78,7 @@ test("buildReport: Miete nur Mieter, Nebenkosten durch 4, Summen konsistent", ()
 });
 
 const item = (p: Partial<Item>): Item => ({
-  id: 1, categoryId: 1, description: "", note: "", interval: 1, startMonth: "2026-01", endMonth: null,
+  id: 1, categoryId: 1, description: "", note: "", interval: 1, startMonth: "2026-01", endMonth: null, source: null,
   amounts: [{ id: 1, validFrom: "2026-01", amount: 10000 }], ...p,
 });
 const sumBy = (cs: { month: string; amount: number }[]) =>
